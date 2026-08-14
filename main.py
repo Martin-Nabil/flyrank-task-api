@@ -93,7 +93,7 @@ def public_info():
 
 @app.get("/protected/profile")
 def protected_profile(authorization: str | None = Header(default=None)):
-    """Protected endpoint — requires a bearer token (not yet verified)."""
+    """Protected endpoint — requires a valid, verified bearer token."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Access token required")
 
@@ -101,7 +101,20 @@ def protected_profile(authorization: str | None = Header(default=None)):
     if not token:
         raise HTTPException(status_code=401, detail="Access token required")
 
-    return {"message": "Token received (not yet verified)", "token_preview": token[:10] + "..."}
+    try:
+        result = supabase.auth.get_user(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    if result is None or result.user is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user = result.user
+    return {
+        "id": user.id,
+        "email": user.email,
+        "created_at": user.created_at
+    }
 
 @app.get("/")
 def root():
