@@ -146,3 +146,39 @@ Copy `.env.example` to `.env` before running — `.env` is git-ignored and never
 ### Database screenshot
 
 ![Postgres tasks table](postgres-screenshot.png)
+
+## Authentication (Supabase)
+
+This project uses **Supabase Auth** for user signup, login, logout, and protected routes. Supabase handles password hashing and JWT (JSON Web Token) issuance — this app never touches raw passwords or signs its own tokens.
+
+### Setup
+
+Add these to your `.env` (see `.env.example`):
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_KEY=your_supabase_anon_key
+
+Get these from your Supabase project dashboard under **Project Settings → API**. Use the **anon/public key**, never the `service_role` key.
+
+### Auth endpoints
+
+| Method | Path | Description | Auth required |
+|---|---|---|---|
+| POST | `/auth/signup` | Create a new account | No |
+| POST | `/auth/login` | Log in, returns an access token | No |
+| POST | `/auth/logout` | Log out the current session | Yes |
+| GET | `/public/info` | Open info endpoint | No |
+| GET | `/protected/profile` | Get the logged-in user's profile | Yes |
+| GET | `/protected/dashboard` | Example second protected route | Yes |
+
+### How protection works
+
+Protected routes require an `Authorization: Bearer <token>` header. The token is verified against Supabase on every request via a shared `require_user` dependency — if the token is missing, malformed, or invalid/expired, the request is rejected with `401` before it reaches the route's logic.
+
+### Example: signup then access a protected route
+
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"yourpassword"}'
+
+curl http://localhost:8000/protected/profile \
+  -H "Authorization: Bearer <access_token_from_above>"
