@@ -2,7 +2,7 @@ import os
 import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 
 load_dotenv()
@@ -85,6 +85,23 @@ def login(credentials: AuthCredentials):
         "access_token": result.session.access_token,
         "refresh_token": result.session.refresh_token
     }
+
+@app.get("/public/info")
+def public_info():
+    """Open endpoint — no auth required."""
+    return {"message": "Welcome stranger! This info is public."}
+
+@app.get("/protected/profile")
+def protected_profile(authorization: str | None = Header(default=None)):
+    """Protected endpoint — requires a bearer token (not yet verified)."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Access token required")
+
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Access token required")
+
+    return {"message": "Token received (not yet verified)", "token_preview": token[:10] + "..."}
 
 @app.get("/")
 def root():
