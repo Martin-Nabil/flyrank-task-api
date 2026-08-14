@@ -50,6 +50,42 @@ class TaskCreate(BaseModel):
 class TaskUpdate(BaseModel):
     title: str | None = None
     done: bool | None = None
+
+class AuthCredentials(BaseModel):
+    email: str | None = None
+    password: str | None = None
+
+@app.post("/auth/signup", status_code=201)
+def signup(credentials: AuthCredentials):
+    """Create a new user account via Supabase."""
+    if not credentials.email or not credentials.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+
+    result = supabase.auth.sign_up({
+        "email": credentials.email,
+        "password": credentials.password
+    })
+    return {"user": result.user}
+
+@app.post("/auth/login")
+def login(credentials: AuthCredentials):
+    """Log in an existing user via Supabase and return their JWT."""
+    if not credentials.email or not credentials.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+
+    try:
+        result = supabase.auth.sign_in_with_password({
+            "email": credentials.email,
+            "password": credentials.password
+        })
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid login credentials")
+
+    return {
+        "access_token": result.session.access_token,
+        "refresh_token": result.session.refresh_token
+    }
+
 @app.get("/")
 def root():
     """Basic info about this API."""
