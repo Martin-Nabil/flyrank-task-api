@@ -1,9 +1,7 @@
-venv/
+﻿venv/
 __pycache__/
 *.pyc
-
 body*.json
-
 tasks.db
-
 update*.json
+.env
