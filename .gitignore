@@ -5,3 +5,6 @@ body*.json
 tasks.db
 update*.json
 .env
+
+signup.json
+badsignup.json
