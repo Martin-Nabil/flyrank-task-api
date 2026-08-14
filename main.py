@@ -58,15 +58,20 @@ def health():
 @app.get("/tasks")
 def get_tasks():
     """List all tasks."""
-    return tasks
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM tasks").fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: int):
     """Get a single task by its ID."""
-    for task in tasks:
-        if task["id"] == task_id:
-            return task
-    raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    conn = get_db()
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+    return dict(row)
 
 @app.post("/tasks", status_code=201)
 def create_task(new_task: TaskCreate):
