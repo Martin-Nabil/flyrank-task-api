@@ -1,34 +1,38 @@
-import sqlite3
+import os
+import psycopg
+from psycopg.rows import dict_row
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+load_dotenv()
+
 app = FastAPI(
     title="Task API",
-    description="A simple SQLite-backed CRUD API for managing to-do tasks.",
-    version="2.0"
+    description="A Postgres-backed CRUD API for managing to-do tasks.",
+    version="3.0"
 )
 
-DB_FILE = "tasks.db"
+DATABASE_URL = os.environ["DATABASE_URL"]
 
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     return conn
 
 def init_db():
     conn = get_db()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             title TEXT NOT NULL,
-            done INTEGER NOT NULL DEFAULT 0
+            done BOOLEAN NOT NULL DEFAULT false
         )
     """)
-    count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()["count"]
     if count == 0:
-        conn.executemany(
-            "INSERT INTO tasks (title, done) VALUES (?, ?)",
-            [("Buy milk", 0), ("Walk the dog", 0), ("Finish assignment", 1)]
+        conn.execute(
+            "INSERT INTO tasks (title, done) VALUES (%s, %s), (%s, %s), (%s, %s)",
+            ("Buy milk", False, "Walk the dog", False, "Finish assignment", True)
         )
     conn.commit()
     conn.close()
