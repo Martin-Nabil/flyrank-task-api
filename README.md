@@ -116,3 +116,33 @@ UPDATE tasks SET done = 1;
 ```
 
 Marks every task as completed at once. Run through DB Browser's Execute SQL tab and "Write Changes," this change was visible immediately through `GET /tasks` — no server restart needed, since the API and DB Browser read the same `tasks.db` file.
+
+## Database (Postgres in Docker)
+
+This project now uses **PostgreSQL running in a Docker container** instead of SQLite, and the whole stack (app + database) starts with a single command via Docker Compose.
+
+### Run everything with one command
+
+```bash
+cp .env.example .env
+docker compose up
+```
+
+This builds the app image, starts Postgres, waits for it to be healthy, then starts the API. The `tasks` table and 3 example rows are created automatically on first run.
+
+### Environment variables
+
+See `.env.example` for the required variable: DATABASE_URL=postgres://postgres:dev@db:5432/tasks
+
+Copy `.env.example` to `.env` before running — `.env` is git-ignored and never committed, since it can hold real secrets.
+
+### Why Postgres + Docker
+
+- No manual Postgres install — Docker runs the official image
+- Same setup works identically on any machine
+- A named volume (`taskdata`) keeps data across `docker compose down` / `up` cycles
+- Config (the database password) lives in `.env`, never hardcoded in source
+
+### Database screenshot
+
+![Postgres tasks table](postgres-screenshot.png)
