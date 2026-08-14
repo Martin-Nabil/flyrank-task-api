@@ -2,7 +2,7 @@ import os
 import psycopg
 from psycopg.rows import dict_row
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 
 load_dotenv()
@@ -91,9 +91,8 @@ def public_info():
     """Open endpoint — no auth required."""
     return {"message": "Welcome stranger! This info is public."}
 
-@app.get("/protected/profile")
-def protected_profile(authorization: str | None = Header(default=None)):
-    """Protected endpoint — requires a valid, verified bearer token."""
+def require_user(authorization: str | None = Header(default=None)):
+    """Reusable auth guard: verifies the bearer token and returns the user."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Access token required")
 
@@ -109,12 +108,27 @@ def protected_profile(authorization: str | None = Header(default=None)):
     if result is None or result.user is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    user = result.user
+    return result.user
+
+@app.get("/protected/profile")
+def protected_profile(user=Depends(require_user)):
+    """Protected endpoint — requires a valid, verified bearer token."""
     return {
         "id": user.id,
         "email": user.email,
         "created_at": user.created_at
     }
+
+@app.post("/auth/logout", status_code=204)
+def logout(user=Depends(require_user)):
+    """Log out the current user (protected — requires a valid token)."""
+    supabase.auth.sign_out()
+    return
+
+@app.get("/protected/dashboard")
+def protected_dashboard(user=Depends(require_user)):
+    """A second protected route, reusing the same guard — no new auth code."""
+    return {"message": f"Welcome to your dashboard, {user.email}!"}
 
 @app.get("/")
 def root():
