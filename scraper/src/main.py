@@ -1,6 +1,8 @@
 import os
 import time
+import re
 import requests
+from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 
@@ -27,7 +29,9 @@ def fetch_page(url: str, cache_filename: str) -> str:
     if response.status_code != 200:
         raise RuntimeError(f"FETCH FAILED: {url} returned status {response.status_code}")
 
+    response.encoding = "utf-8"
     html = response.text
+
     with open(cache_path, "w", encoding="utf-8") as f:
         f.write(html)
 
@@ -36,8 +40,9 @@ def fetch_page(url: str, cache_filename: str) -> str:
     return html
 
 def discover_book_urls():
-    """Visit the first 3 catalogue pages and collect every unique book URL."""
-    all_book_urls = []
+    """Visit the first 3 catalogue pages and collect every unique book URL with its source page."""
+    all_books = []
+    seen_urls = set()
     page_url = BASE_URL + "catalogue/page-1.html"
     page_num = 1
 
@@ -50,7 +55,9 @@ def discover_book_urls():
             link = article.select_one("h3 a")
             if link and link.get("href"):
                 absolute_url = urljoin(page_url, link["href"])
-                all_book_urls.append(absolute_url)
+                if absolute_url not in seen_urls:
+                    seen_urls.add(absolute_url)
+                    all_books.append({"url": absolute_url, "source_page": page_url})
 
         next_link = soup.select_one("li.next a")
         if next_link and next_link.get("href"):
@@ -59,13 +66,50 @@ def discover_book_urls():
         else:
             page_url = None
 
-    unique_urls = list(dict.fromkeys(all_book_urls))
-
     print(f"catalogue_pages={min(page_num, 3)}")
-    print(f"discovered={len(all_book_urls)}")
-    print(f"unique_urls={len(unique_urls)}")
+    print(f"discovered={len(all_books)}")
+    print(f"unique_urls={len(seen_urls)}")
 
-    return unique_urls
+    return all_books
 
+def extract_book(book_url: str, source_page: str) -> dict:
+    """Fetch one book detail page and extract the 8 raw fields."""
+    cache_filename = re.sub(r"[^a-zA-Z0-9]+", "_", book_url) + ".html"
+    html = fetch_page(book_url, cache_filename)
+    soup = BeautifulSoup(html, "html.parser")
+
+    product_main = soup.select_one("div.product_main")
+
+    title = product_main.select_one("h1").get_text(strip=True)
+
+    price_text = product_main.select_one("p.price_color").get_text(strip=True)
+
+    availability_text = product_main.select_one("p.availability").get_text(strip=True)
+
+    rating_tag = product_main.select_one("p.star-rating")
+    rating_classes = rating_tag.get("class", [])
+    rating_text = next((c for c in rating_classes if c != "star-rating"), None)
+
+    description_tag = soup.select_one("#product_description ~ p")
+    description = description_tag.get_text(strip=True) if description_tag else None
+
+    return {
+        "title": title,
+        "product_url": book_url,
+        "price_text": price_text,
+        "availability_text": availability_text,
+        "rating_text": rating_text,
+        "description": description,
+        "source_page": source_page,
+        "fetched_at": datetime.now(timezone.utc).isoformat()
+    }
 if __name__ == "__main__":
-    book_urls = discover_book_urls()
+    books = discover_book_urls()
+
+    records = []
+    for book in books:
+        record = extract_book(book["url"], source_page=book["source_page"])
+        records.append(record)
+
+    print(f"detail_pages={len(records)}")
+    print(records[0])
