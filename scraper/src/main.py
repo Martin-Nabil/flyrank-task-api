@@ -1,10 +1,12 @@
 import os
 import time
 import re
+import json
 import requests
 from datetime import datetime, timezone
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from pydantic import BaseModel, ValidationError
 
 BASE_URL = "https://books.toscrape.com/"
 CACHE_DIR = "cache"
@@ -71,7 +73,6 @@ def discover_book_urls():
     print(f"unique_urls={len(seen_urls)}")
 
     return all_books
-
 def extract_book(book_url: str, source_page: str) -> dict:
     """Fetch one book detail page and extract the 8 raw fields."""
     cache_filename = re.sub(r"[^a-zA-Z0-9]+", "_", book_url) + ".html"
@@ -103,6 +104,61 @@ def extract_book(book_url: str, source_page: str) -> dict:
         "source_page": source_page,
         "fetched_at": datetime.now(timezone.utc).isoformat()
     }
+
+class Book(BaseModel):
+    title: str
+    product_url: str
+    price_text: str
+    price_gbp: float
+    availability_text: str
+    rating_text: str | None = None
+    description: str | None = None
+    source_page: str
+    fetched_at: str
+
+def normalize_record(raw: dict) -> dict:
+    """Turn raw extracted text into clean typed values."""
+    clean = dict(raw)
+
+    price_match = re.search(r"[\d.]+", raw["price_text"])
+    clean["price_gbp"] = float(price_match.group()) if price_match else None
+
+    return clean
+
+def validate_and_store(raw_records: list[dict]):
+    """Normalize, validate, and split records into good and bad."""
+    good_records = []
+    error_records = []
+    seen_urls = set()
+
+    for raw in raw_records:
+        normalized = normalize_record(raw)
+
+        if normalized["product_url"] in seen_urls:
+            continue
+        seen_urls.add(normalized["product_url"])
+
+        try:
+            book = Book(**normalized)
+            good_records.append(book.model_dump())
+        except ValidationError as e:
+            error_records.append({
+                "product_url": raw.get("product_url", "unknown"),
+                "reason": str(e)
+            })
+
+    os.makedirs("output", exist_ok=True)
+    with open("output/books.json", "w", encoding="utf-8") as f:
+        json.dump(good_records, f, indent=2, ensure_ascii=False)
+
+    with open("output/errors.json", "w", encoding="utf-8") as f:
+        json.dump(error_records, f, indent=2, ensure_ascii=False)
+
+    print(f"valid_records={len(good_records)}")
+    print(f"invalid_records={len(error_records)}")
+
+    return good_records, error_records
+
 if __name__ == "__main__":
     books = discover_book_urls()
 
@@ -112,4 +168,5 @@ if __name__ == "__main__":
         records.append(record)
 
     print(f"detail_pages={len(records)}")
-    print(records[0])
+
+    validate_and_store(records)
