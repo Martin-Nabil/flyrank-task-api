@@ -14,8 +14,10 @@ USER_AGENT = "FlyRankInternship-A9/1.0 (+https://github.com/Martin-Nabil/flyrank
 TIMEOUT_SECONDS = 10
 DELAY_SECONDS = 0.5
 
-def fetch_page(url: str, cache_filename: str) -> str:
-    """Fetch a page, using a local cache if it already exists."""
+STATS = {"cache_hits": 0, "pages_fetched": 0, "failed_pages": 0}
+
+def fetch_page(url: str, cache_filename: str, allow_retry: bool = True) -> str | None:
+    """Fetch a page, using a local cache if it already exists. Returns None on failure."""
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_path = os.path.join(CACHE_DIR, cache_filename)
 
@@ -23,23 +25,42 @@ def fetch_page(url: str, cache_filename: str) -> str:
         with open(cache_path, "r", encoding="utf-8") as f:
             html = f.read()
         print(f"CACHE HIT: {cache_filename} ({len(html)} bytes)")
+        STATS["cache_hits"] += 1
         return html
 
     headers = {"User-Agent": USER_AGENT}
-    response = requests.get(url, headers=headers, timeout=TIMEOUT_SECONDS)
 
-    if response.status_code != 200:
-        raise RuntimeError(f"FETCH FAILED: {url} returned status {response.status_code}")
+    try:
+        response = requests.get(url, headers=headers, timeout=TIMEOUT_SECONDS)
+    except requests.exceptions.RequestException as e:
+        if allow_retry:
+            print(f"FETCH FAILED (after retry): {url} â€” {e}")
+            time.sleep(1)
+            return fetch_page(url, cache_filename, allow_retry=False)
+        print(f"FETCH FAILED (after retry): {url} — {e}")
+        STATS["failed_pages"] += 1
+        return None
 
-    response.encoding = "utf-8"
-    html = response.text
+    if response.status_code == 200:
+        response.encoding = "utf-8"
+        html = response.text
 
-    with open(cache_path, "w", encoding="utf-8") as f:
-        f.write(html)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            f.write(html)
 
-    print(f"FETCH: {cache_filename} ({len(html)} bytes)")
-    time.sleep(DELAY_SECONDS)
-    return html
+        print(f"FETCH: {cache_filename} ({len(html)} bytes)")
+        STATS["pages_fetched"] += 1
+        time.sleep(DELAY_SECONDS)
+        return html
+
+    if response.status_code >= 500 and allow_retry:
+        print(f"FETCH FAILED (status {response.status_code}, retrying once): {url}")
+        time.sleep(1)
+        return fetch_page(url, cache_filename, allow_retry=False)
+
+    print(f"FETCH FAILED (status {response.status_code}, not retrying): {url}")
+    STATS["failed_pages"] += 1
+    return None
 
 def discover_book_urls():
     """Visit the first 3 catalogue pages and collect every unique book URL with its source page."""
@@ -51,6 +72,8 @@ def discover_book_urls():
     while page_url and page_num <= 3:
         cache_filename = f"catalogue-page-{page_num}.html"
         html = fetch_page(page_url, cache_filename)
+        if html is None:
+            break
         soup = BeautifulSoup(html, "html.parser")
 
         for article in soup.select("article.product_pod"):
@@ -73,10 +96,12 @@ def discover_book_urls():
     print(f"unique_urls={len(seen_urls)}")
 
     return all_books
-def extract_book(book_url: str, source_page: str) -> dict:
-    """Fetch one book detail page and extract the 8 raw fields."""
+def extract_book(book_url: str, source_page: str) -> dict | None:
+    """Fetch one book detail page and extract the 8 raw fields. Returns None if the page failed."""
     cache_filename = re.sub(r"[^a-zA-Z0-9]+", "_", book_url) + ".html"
     html = fetch_page(book_url, cache_filename)
+    if html is None:
+        return None
     soup = BeautifulSoup(html, "html.parser")
 
     product_main = soup.select_one("div.product_main")
@@ -160,13 +185,40 @@ def validate_and_store(raw_records: list[dict]):
     return good_records, error_records
 
 if __name__ == "__main__":
+    start_time = datetime.now(timezone.utc)
+
     books = discover_book_urls()
+
+    # Deliberately broken URL to prove the pipeline survives a bad page
+    books.append({
+        "url": BASE_URL + "catalogue/this-book-does-not-exist_00000/index.html",
+        "source_page": BASE_URL + "catalogue/page-1.html"
+    })
 
     records = []
     for book in books:
         record = extract_book(book["url"], source_page=book["source_page"])
-        records.append(record)
+        if record is not None:
+            records.append(record)
 
     print(f"detail_pages={len(records)}")
 
-    validate_and_store(records)
+    good_records, error_records = validate_and_store(records)
+
+    end_time = datetime.now(timezone.utc)
+    duration_seconds = (end_time - start_time).total_seconds()
+
+    run_report = {
+        "start_time": start_time.isoformat(),
+        "duration_seconds": duration_seconds,
+        "pages_fetched": STATS["pages_fetched"],
+        "cache_hits": STATS["cache_hits"],
+        "valid_records": len(good_records),
+        "invalid_records": len(error_records),
+        "failed_pages": STATS["failed_pages"]
+    }
+
+    with open("output/run-report.json", "w", encoding="utf-8") as f:
+        json.dump(run_report, f, indent=2)
+
+    print(json.dumps(run_report, indent=2))
