@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "title": "A Light in the Attic",
+    "description": "A collection of poetry and drawings from Shel Silverstein.",
+    "expected_category": "poetry"
+  },
+  {
+    "id": 2,
+    "title": "The Great Gatsby",
+    "description": "A novel about the American dream and wealth in the 1920s.",
+    "expected_category": "fiction"
+  },
+  {
+    "id": 3,
+    "title": "Sharp Objects",
+    "description": "",
+    "expected_category": "other"
+  },
+  {
+    "id": 4,
+    "title": "Clean Code",
+    "description": "A handbook of agile software craftsmanship for professional programmers.",
+    "expected_category": "nonfiction"
+  },
+  {
+    "id": 5,
+    "title": "The Very Hungry Caterpillar",
+    "description": "A picture book for young children about a caterpillar eating its way through various foods.",
+    "expected_category": "childrens"
+  },
+  {
+    "id": 6,
+    "title": "Oxford English Dictionary",
+    "description": "A comprehensive reference dictionary of the English language.",
+    "expected_category": "reference"
+  },
+  {
+    "id": 7,
+    "title": "Untitled Manuscript",
+    "description": "No further details available at this time.",
+    "expected_category": "other"
+  },
+  {
+    "id": 8,
+    "title": "The Silent Patient",
+    "description": "A psychological thriller about a woman who shoots her husband and then stops speaking.",
+    "expected_category": "fiction"
+  }
+]
