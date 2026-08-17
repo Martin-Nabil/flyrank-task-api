@@ -4,3 +4,4 @@ __pycache__/
 reports.db
 output/*.pdf
 downloaded-report.pdf
+logs/

@@ -1,1 +1,0 @@
-{"timestamp": "2026-08-17T02:51:18.696702+00:00", "report_id": "84a585cc-cc15-49fa-9b47-90b52741ccfa", "error": "[Errno 2] No such file or directory: 'books.json'", "attempts": 3, "message": "Report 84a585cc-cc15-49fa-9b47-90b52741ccfa permanently failed after 3 attempts"}
