@@ -1,19 +1,37 @@
 import os
 import json
 import re
+import time
+import random
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, ValidationError
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import OpenAI, APITimeoutError, APIStatusError
 
 load_dotenv()
 
 app = FastAPI(title="LLM Enrich Endpoint")
 
 LLM_STUB = os.environ.get("LLM_STUB", "0") == "1"
+LLM_ENABLED = os.environ.get("LLM_ENABLED", "true").lower() != "false"
 PROMPT_VERSION = "enrich-v1"
+TIMEOUT_SECONDS = 30.0
+MAX_RETRIES = 2
 
+def log_cost(model, input_tokens, output_tokens, duration, repaired):
+    os.makedirs("logs", exist_ok=True)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "prompt_version": PROMPT_VERSION,
+        "model": model,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "duration_seconds": duration,
+        "repaired": repaired
+    }
+    with open("logs/cost.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
 with open(f"prompts/{PROMPT_VERSION}.md", "r", encoding="utf-8") as f:
     SYSTEM_PROMPT = f.read()
 
@@ -39,8 +57,8 @@ class EnrichResponse(BaseModel):
             raise ValueError(f"category must be one of {VALID_CATEGORIES}, got {value!r}")
         return value
 
-def call_model(title: str, description: str, extra_context: str | None = None) -> str:
-    """Call the LLM and return its raw text response."""
+def call_model(title: str, description: str, extra_context: str | None = None, repaired: bool = False) -> str:
+    """Call the LLM with timeout and retry policy. Returns raw text response."""
     user_content = json.dumps({"title": title, "description": description})
 
     messages = [
@@ -51,12 +69,57 @@ def call_model(title: str, description: str, extra_context: str | None = None) -
     if extra_context:
         messages.append({"role": "user", "content": extra_context})
 
-    response = client.chat.completions.create(
-        model=os.environ["LLM_MODEL"],
-        temperature=0.2,
-        messages=messages
-    )
-    return response.choices[0].message.content
+    model_name = os.environ["LLM_MODEL"]
+    attempt = 0
+    last_error = None
+
+    while attempt <= MAX_RETRIES:
+        start = time.monotonic()
+        try:
+            response = client.chat.completions.create(
+                model=model_name,
+                temperature=0.2,
+                messages=messages,
+                timeout=TIMEOUT_SECONDS
+            )
+            duration = time.monotonic() - start
+
+            usage = response.usage
+            log_cost(
+                model=model_name,
+                input_tokens=usage.prompt_tokens if usage else None,
+                output_tokens=usage.completion_tokens if usage else None,
+                duration=duration,
+                repaired=repaired
+            )
+
+            return response.choices[0].message.content
+
+        except APITimeoutError as e:
+            last_error = e
+            duration = time.monotonic() - start
+            print(f"TIMEOUT on attempt {attempt + 1}: {e}")
+
+        except APIStatusError as e:
+            status = e.status_code
+            if status in (400, 401, 403):
+                raise HTTPException(status_code=502, detail=f"Model provider rejected the request ({status})")
+            last_error = e
+            print(f"HTTP {status} on attempt {attempt + 1}: {e}")
+
+            if status == 429:
+                retry_after = e.response.headers.get("Retry-After") if hasattr(e, "response") else None
+                if retry_after:
+                    time.sleep(float(retry_after))
+                    attempt += 1
+                    continue
+
+        attempt += 1
+        if attempt <= MAX_RETRIES:
+            backoff = (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+            time.sleep(backoff)
+
+    raise HTTPException(status_code=504, detail="Model did not respond in time after retries")
 
 def extract_json(raw_text: str) -> dict:
     """Strip code fences and other wrapping, then parse JSON. Raises on failure."""
@@ -92,6 +155,9 @@ def quarantine(payload: EnrichRequest, raw_text: str, error: str):
 
 @app.post("/enrich", response_model=EnrichResponse)
 def enrich(payload: EnrichRequest):
+    if not LLM_ENABLED:
+        raise HTTPException(status_code=503, detail="LLM feature is currently disabled")
+
     if LLM_STUB:
         return EnrichResponse(
             category="other",
@@ -112,7 +178,7 @@ def enrich(payload: EnrichRequest):
             f"Error: {first_error}\n"
             f"Reply again with ONLY corrected JSON matching the required schema."
         )
-        raw_text_2 = call_model(payload.title, payload.description, extra_context=repair_context)
+        raw_text_2 = call_model(payload.title, payload.description, extra_context=repair_context, repaired=True)
 
         try:
             data_2 = extract_json(raw_text_2)
