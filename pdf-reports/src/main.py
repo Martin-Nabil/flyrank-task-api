@@ -37,12 +37,30 @@ class ReportCreatedResponse(BaseModel):
     report_id: str
     status: str
 
+IDEMPOTENCY_WINDOW_MINUTES = 5
+
 @app.post("/reports", status_code=202, response_model=ReportCreatedResponse)
 def create_report():
+    conn = get_db()
+
+    recent = conn.execute(
+        """SELECT id, status FROM reports
+           WHERE status IN ('pending', 'running', 'completed')
+           ORDER BY created_at DESC LIMIT 1"""
+    ).fetchone()
+
+    if recent:
+        created = conn.execute("SELECT created_at FROM reports WHERE id = ?", (recent["id"],)).fetchone()
+        created_time = datetime.fromisoformat(created["created_at"])
+        age_minutes = (datetime.now(timezone.utc) - created_time).total_seconds() / 60
+
+        if age_minutes < IDEMPOTENCY_WINDOW_MINUTES:
+            conn.close()
+            return ReportCreatedResponse(report_id=recent["id"], status=recent["status"])
+
     report_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
 
-    conn = get_db()
     conn.execute(
         "INSERT INTO reports (id, status, created_at, updated_at) VALUES (?, ?, ?, ?)",
         (report_id, "pending", now, now)

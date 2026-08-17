@@ -87,26 +87,55 @@ def render_pdf(stats, report_id):
     c.save()
     return pdf_path
 
+MAX_ATTEMPTS = 3
+
+def log_alert(report_id, error, attempts):
+    os.makedirs("logs", exist_ok=True)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "report_id": report_id,
+        "error": error,
+        "attempts": attempts,
+        "message": f"Report {report_id} permanently failed after {attempts} attempts"
+    }
+    with open("logs/alerts.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+    print(f"ALERT: {entry['message']}")
+
 def process_report(conn, report):
     now = datetime.now(timezone.utc).isoformat()
+    attempts = report["attempts"] + 1
+
     try:
         books = load_books()
         stats = compute_stats(books)
         pdf_path = render_pdf(stats, report["id"])
 
         conn.execute(
-            "UPDATE reports SET status = 'completed', pdf_path = ?, updated_at = ? WHERE id = ?",
-            (pdf_path, now, report["id"])
+            "UPDATE reports SET status = 'completed', pdf_path = ?, attempts = ?, updated_at = ? WHERE id = ?",
+            (pdf_path, attempts, now, report["id"])
         )
         print(f"COMPLETED report {report['id']} -> {pdf_path}")
+        conn.commit()
+
     except Exception as e:
-        attempts = report["attempts"] + 1
+        if attempts < MAX_ATTEMPTS:
+            backoff = 2 ** attempts
+            print(f"RETRY {attempts}/{MAX_ATTEMPTS} for report {report['id']} in {backoff}s: {e}")
+            conn.execute(
+                "UPDATE reports SET status = 'pending', attempts = ?, error = ?, updated_at = ? WHERE id = ?",
+                (attempts, str(e), now, report["id"])
+            )
+            conn.commit()
+            time.sleep(backoff)
+            return
+
         conn.execute(
             "UPDATE reports SET status = 'failed', error = ?, attempts = ?, updated_at = ? WHERE id = ?",
             (str(e), attempts, now, report["id"])
         )
-        print(f"FAILED report {report['id']}: {e}")
-    conn.commit()
+        conn.commit()
+        log_alert(report["id"], str(e), attempts)
 
 def claim_next_report(conn):
     row = conn.execute(
