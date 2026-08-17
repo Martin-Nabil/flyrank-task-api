@@ -101,8 +101,32 @@ export default function Home() {
       }),
     });
 
-    const data = await response.json();
-    setRunResult(data);
+const data = await response.json();
+    pollForResult(data.eventId);
+  };
+
+  const pollForResult = async (eventId) => {
+    const maxAttempts = 20;
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+
+      const res = await fetch(`/api/run-status/${eventId}`);
+      const statusData = await res.json();
+
+      if (statusData.status === "Completed") {
+        setRunResult(statusData);
+        setRunning(false);
+        return;
+      }
+
+      if (statusData.status === "Failed") {
+        setRunResult({ error: "Workflow failed to complete" });
+        setRunning(false);
+        return;
+      }
+    }
+
+    setRunResult({ error: "Timed out waiting for result" });
     setRunning(false);
   };
 const selectedNode = nodes.find((n) => n.id === selectedNodeId);
@@ -149,14 +173,45 @@ const selectedNode = nodes.find((n) => n.id === selectedNodeId);
               zIndex: 10,
               background: "white",
               border: "1px solid #e5e7eb",
-              borderRadius: 6,
+              borderRadius: 8,
               padding: 12,
-              maxWidth: 400,
+              maxWidth: 420,
+              maxHeight: 300,
+              overflowY: "auto",
               fontSize: 13,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
             }}
           >
-            <strong>Event sent!</strong> Check the Inngest dashboard's Runs tab
-            (localhost:8288) for the execution log - event ID: {runResult.eventId}
+            <strong>Execution Log</strong>
+            {runResult.error && (
+              <div style={{ color: "#dc2626", marginTop: 8 }}>{runResult.error}</div>
+            )}
+            {runResult.executionLog && (
+              <div style={{ marginTop: 8 }}>
+                {runResult.executionLog.map((step, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      marginBottom: 8,
+                      paddingBottom: 8,
+                      borderBottom: "1px solid #f3f4f6",
+                    }}
+                  >
+                    <div style={{ fontWeight: 600 }}>Node {step.nodeId}</div>
+                    <div style={{ color: "#555" }}>{step.prompt}</div>
+                    <div
+                      style={{
+                        marginTop: 4,
+                        fontWeight: 700,
+                        color: step.answer === "YES" ? "#16a34a" : "#dc2626",
+                      }}
+                    >
+                      {step.answer}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

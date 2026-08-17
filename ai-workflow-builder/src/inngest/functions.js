@@ -57,6 +57,13 @@ export const runWorkflow = inngest.createFunction(
       currentNodeId = nextEdge ? nextEdge.target : null;
     }
 
+    const fs = await import("fs/promises");
+    await fs.mkdir("run-results", { recursive: true });
+    await fs.writeFile(
+      `run-results/${event.id}.json`,
+      JSON.stringify({ executionLog })
+    );
+
     return { executionLog };
   }
 );
