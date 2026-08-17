@@ -9,12 +9,51 @@ import ReactFlow, {
   applyEdgeChanges,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import { Handle, Position } from "reactflow";
 
 let nodeIdCounter = 2;
 
+function DecisionNode({ data }) {
+  return (
+    <div
+      style={{
+        padding: "12px 16px",
+        borderRadius: 10,
+        border: data.active ? "3px solid #f59e0b" : "2px solid #2563eb",
+        background: data.active ? "#fffbeb" : "white",
+        minWidth: 180,
+        boxShadow: data.active
+          ? "0 0 12px rgba(245,158,11,0.6)"
+          : "0 1px 3px rgba(0,0,0,0.1)",
+        fontSize: 13,
+      }}
+    >
+      <Handle type="target" position={Position.Top} />
+      <div style={{ fontWeight: 600, color: "#2563eb", marginBottom: 4 }}>
+        Decision Node
+      </div>
+      <div>{data.label}</div>
+      {data.lastAnswer && (
+        <div
+          style={{
+            marginTop: 6,
+            fontWeight: 700,
+            color: data.lastAnswer === "YES" ? "#16a34a" : "#dc2626",
+          }}
+        >
+          → {data.lastAnswer}
+        </div>
+      )}
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+}
+
+const nodeTypes = { decision: DecisionNode };
 const initialNodes = [
   {
     id: "1",
+    type: "decision",
     position: { x: 250, y: 50 },
     data: { label: "Is this a support request?" },
   },
@@ -61,6 +100,7 @@ export default function Home() {
     const id = String(nodeIdCounter++);
     const newNode = {
       id,
+      type: "decision",
       position: { x: 250, y: 100 + nodeIdCounter * 80 },
       data: { label: "New decision node" },
     };
@@ -114,10 +154,21 @@ const data = await response.json();
       const statusData = await res.json();
 
       if (statusData.status === "Completed") {
-        setRunResult(statusData);
-        setRunning(false);
-        return;
-      }
+          setRunResult(statusData);
+          setRunning(false);
+
+          if (statusData.executionLog) {
+            setNodes((nds) =>
+              nds.map((n) => {
+                const step = statusData.executionLog.find((s) => s.nodeId === n.id);
+                return step
+                  ? { ...n, data: { ...n.data, lastAnswer: step.answer, active: true } }
+                  : n;
+              })
+            );
+          }
+          return;
+        }
 
       if (statusData.status === "Failed") {
         setRunResult({ error: "Workflow failed to complete" });
@@ -222,6 +273,7 @@ const selectedNode = nodes.find((n) => n.id === selectedNodeId);
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeClick={onNodeClick}
+          nodeTypes={nodeTypes}
           fitView
         >
           <Background />
