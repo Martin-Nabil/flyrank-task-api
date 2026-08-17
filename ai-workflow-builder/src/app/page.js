@@ -26,6 +26,8 @@ export default function Home() {
   const [nodes, setNodes] = useState(initialNodes);
   const [edges, setEdges] = useState(initialEdges);
   const [selectedNodeId, setSelectedNodeId] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState(null);
 
   const onNodesChange = useCallback(
     (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -37,10 +39,7 @@ export default function Home() {
   );
 
   const onConnect = useCallback((connection) => {
-    // Ask which path this edge represents
-    const isYes = window.confirm(
-      "Is this the YES path? (Cancel = NO path)"
-    );
+    const isYes = window.confirm("Is this the YES path? (Cancel = NO path)");
     const label = isYes ? "YES" : "NO";
     const color = isYes ? "#16a34a" : "#dc2626";
 
@@ -80,12 +79,38 @@ export default function Home() {
     );
   };
 
-  const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+  const runWorkflow = async () => {
+    if (nodes.length === 0) return;
+
+    setRunning(true);
+    setRunResult(null);
+
+    const edgesWithBranch = edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      data: e.data,
+    }));
+
+    const response = await fetch("/api/run-workflow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        nodes: nodes.map((n) => ({ id: n.id, data: n.data })),
+        edges: edgesWithBranch,
+        startNodeId: nodes[0].id,
+      }),
+    });
+
+    const data = await response.json();
+    setRunResult(data);
+    setRunning(false);
+  };
+const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
   return (
     <div style={{ width: "100vw", height: "100vh", display: "flex" }}>
       <div style={{ flex: 1, position: "relative" }}>
-        <div style={{ position: "absolute", top: 10, left: 10, zIndex: 10 }}>
+        <div style={{ position: "absolute", top: 10, left: 10, zIndex: 10, display: "flex", gap: 8 }}>
           <button
             onClick={addNode}
             style={{
@@ -99,7 +124,42 @@ export default function Home() {
           >
             + Add Decision Node
           </button>
+          <button
+            onClick={runWorkflow}
+            disabled={running}
+            style={{
+              padding: "8px 16px",
+              background: running ? "#9ca3af" : "#16a34a",
+              color: "white",
+              border: "none",
+              borderRadius: 6,
+              cursor: running ? "not-allowed" : "pointer",
+            }}
+          >
+            {running ? "Running..." : "Run Workflow"}
+          </button>
         </div>
+
+        {runResult && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 10,
+              left: 10,
+              zIndex: 10,
+              background: "white",
+              border: "1px solid #e5e7eb",
+              borderRadius: 6,
+              padding: 12,
+              maxWidth: 400,
+              fontSize: 13,
+            }}
+          >
+            <strong>Event sent!</strong> Check the Inngest dashboard's Runs tab
+            (localhost:8288) for the execution log - event ID: {runResult.eventId}
+          </div>
+        )}
+
         <ReactFlow
           nodes={nodes}
           edges={edges}
