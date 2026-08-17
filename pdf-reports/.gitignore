@@ -1,6 +1,7 @@
 venv/
 __pycache__/
 *.pyc
+reports.db
 output/*.pdf
 !output/sample-report.pdf
 downloaded-report.pdf
