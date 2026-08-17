@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 reports.db
 output/*.pdf
+downloaded-report.pdf
