@@ -51,3 +51,51 @@ def create_report():
     conn.close()
 
     return ReportCreatedResponse(report_id=report_id, status="pending")
+
+class ReportStatusResponse(BaseModel):
+    report_id: str
+    status: str
+    download_url: str | None = None
+    error: str | None = None
+    attempts: int
+    created_at: str
+    updated_at: str
+
+@app.get("/reports/{report_id}", response_model=ReportStatusResponse)
+def get_report(report_id: str):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
+    conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Report {report_id} not found")
+
+    download_url = f"/reports/{report_id}/download" if row["status"] == "completed" else None
+
+    return ReportStatusResponse(
+        report_id=row["id"],
+        status=row["status"],
+        download_url=download_url,
+        error=row["error"],
+        attempts=row["attempts"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"]
+    )
+
+@app.get("/reports/{report_id}/download")
+def download_report(report_id: str):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
+    conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Report {report_id} not found")
+
+    if row["status"] != "completed" or not row["pdf_path"]:
+        raise HTTPException(status_code=409, detail=f"Report is not ready yet (status: {row['status']})")
+
+    return FileResponse(
+        path=row["pdf_path"],
+        media_type="application/pdf",
+        filename=f"report-{report_id}.pdf"
+    )
