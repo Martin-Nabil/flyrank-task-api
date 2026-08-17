@@ -45,6 +45,15 @@ class JobCreatedResponse(BaseModel):
     job_id: str
     status: str
 
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    result: dict | None = None
+    error: str | None = None
+    attempts: int
+    created_at: str
+    updated_at: str
+
 @app.post("/jobs", status_code=202, response_model=JobCreatedResponse)
 def create_job(payload: JobRequest):
     job_id = str(uuid.uuid4())
@@ -59,3 +68,24 @@ def create_job(payload: JobRequest):
     conn.close()
 
     return JobCreatedResponse(job_id=job_id, status="pending")
+
+@app.get("/jobs/{job_id}", response_model=JobStatusResponse)
+def get_job(job_id: str):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+    result = json.loads(row["result"]) if row["result"] else None
+
+    return JobStatusResponse(
+        job_id=row["id"],
+        status=row["status"],
+        result=result,
+        error=row["error"],
+        attempts=row["attempts"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"]
+    )
