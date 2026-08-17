@@ -5,3 +5,4 @@ __pycache__/
 logs/
 valid.json
 invalid.json
+test*.json

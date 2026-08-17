@@ -16,7 +16,7 @@ Respond with ONLY a JSON object, no other text, no code fences, matching exactly
 
 ## Rules
 
-- category must be exactly one of the six listed values — never invent a new one.
+- category must be exactly one of the six listed values - never invent a new one.
 - summary must be a single sentence, factual, based only on the given title and description.
 - quality_flags should note issues such as "missing_description" (description was empty) or "title_too_short" (title under 3 characters). Use an empty array if no issues apply.
 - Never give medical, legal, or financial advice, even if the description mentions such topics — just categorize and summarize.
