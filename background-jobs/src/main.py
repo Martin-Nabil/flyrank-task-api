@@ -56,13 +56,25 @@ class JobStatusResponse(BaseModel):
 
 @app.post("/jobs", status_code=202, response_model=JobCreatedResponse)
 def create_job(payload: JobRequest):
+    input_json = json.dumps(payload.model_dump(), sort_keys=True)
+
+    conn = get_db()
+
+    existing = conn.execute(
+        "SELECT id, status FROM jobs WHERE input = ? AND status IN ('pending', 'running', 'completed') ORDER BY created_at DESC LIMIT 1",
+        (input_json,)
+    ).fetchone()
+
+    if existing:
+        conn.close()
+        return JobCreatedResponse(job_id=existing["id"], status=existing["status"])
+
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
 
-    conn = get_db()
     conn.execute(
         "INSERT INTO jobs (id, status, input, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        (job_id, "pending", json.dumps(payload.model_dump()), now, now)
+        (job_id, "pending", input_json, now, now)
     )
     conn.commit()
     conn.close()

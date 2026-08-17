@@ -71,24 +71,54 @@ def claim_next_job(conn) -> sqlite3.Row | None:
 
     return updated
 
+MAX_ATTEMPTS = 3
+
+def log_alert(job_id, error, attempts):
+    """A basic alert: append to a file a human would monitor."""
+    os.makedirs("logs", exist_ok=True)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "job_id": job_id,
+        "error": error,
+        "attempts": attempts,
+        "message": f"Job {job_id} permanently failed after {attempts} attempts"
+    }
+    with open("logs/alerts.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+    print(f"ALERT: {entry['message']}")
+
 def process_job(conn, job):
     input_data = json.loads(job["input"])
     now = datetime.now(timezone.utc).isoformat()
+    attempts = job["attempts"] + 1
 
     try:
         result = call_model(input_data["title"], input_data["description"])
         conn.execute(
-            "UPDATE jobs SET status = 'completed', result = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(result), now, job["id"])
+            "UPDATE jobs SET status = 'completed', result = ?, attempts = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(result), attempts, now, job["id"])
         )
         print(f"COMPLETED job {job['id']}")
+
     except Exception as e:
-        attempts = job["attempts"] + 1
+        if attempts < MAX_ATTEMPTS:
+            backoff = 2 ** attempts
+            print(f"RETRY {attempts}/{MAX_ATTEMPTS} for job {job['id']} in {backoff}s: {e}")
+            conn.execute(
+                "UPDATE jobs SET status = 'pending', attempts = ?, error = ?, updated_at = ? WHERE id = ?",
+                (attempts, str(e), now, job["id"])
+            )
+            conn.commit()
+            time.sleep(backoff)
+            return
+
         conn.execute(
             "UPDATE jobs SET status = 'failed', error = ?, attempts = ?, updated_at = ? WHERE id = ?",
             (str(e), attempts, now, job["id"])
         )
-        print(f"FAILED job {job['id']}: {e}")
+        conn.commit()
+        log_alert(job["id"], str(e), attempts)
+        return
 
     conn.commit()
 
